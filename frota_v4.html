@@ -294,6 +294,10 @@ tr:hover td{background:var(--gray-50)}
   .hero-stats{flex-direction:column;gap:0}
   .hstat{border-right:none;border-bottom:1px solid rgba(255,255,255,.1)}
 }
+
+.tb-logo-pill{display:flex;align-items:center;gap:10px;background:#fff;padding:5px 14px;border-radius:8px}
+.tb-logo-pill img{height:22px;object-fit:contain;filter:none!important}
+.tb-logo-inner-sep{width:1px;height:18px;background:var(--gray-200)}
 </style>
 </head>
 <body>
@@ -317,9 +321,11 @@ tr:hover td{background:var(--gray-50)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="tb-brand">
-      <img id="tb1" alt="UniFECAF">
-      <div class="tb-divider"></div>
-      <img id="tb2" alt="Colégio SER">
+      <div class="tb-logo-pill">
+        <img id="tb1" alt="UniFECAF">
+        <div class="tb-logo-inner-sep"></div>
+        <img id="tb2" alt="Colégio SER">
+      </div>
       <div class="tb-divider"></div>
       <span class="tb-sys">Gestão de Frota</span>
     </div>
@@ -580,8 +586,12 @@ const $=id=>document.getElementById(id);
 
 function setLogos(){
   // Topbar logos: white filter (dark background)
-  ['ll1','tb1'].forEach(id=>{const e=$(id);if(e){e.src='data:image/png;base64,'+L1;e.style.filter='brightness(0) invert(1)'}});
-  ['ll2','tb2'].forEach(id=>{const e=$(id);if(e){e.src='data:image/png;base64,'+L2;e.style.filter='brightness(0) invert(1)'}});
+  // Loading screen: white filter on dark bg
+  const ll1=document.getElementById('ll1');if(ll1){ll1.src='data:image/png;base64,'+L1;ll1.style.filter='brightness(0) invert(1)';}
+  const ll2=document.getElementById('ll2');if(ll2){ll2.src='data:image/png;base64,'+L2;ll2.style.filter='brightness(0) invert(1)';}
+  // Topbar: natural colors inside white pill
+  const tb1=document.getElementById('tb1');if(tb1){tb1.src='data:image/png;base64,'+L1;tb1.style.filter='none';}
+  const tb2=document.getElementById('tb2');if(tb2){tb2.src='data:image/png;base64,'+L2;tb2.style.filter='none';}
   // Hero logos: natural colors, white background pill, no filter
   ['h1','h2'].forEach(id=>{const e=$(id);if(e){e.style.filter='none';e.style.borderRadius='8px'}});
   const h1=document.getElementById('h1');if(h1)h1.src='data:image/png;base64,'+L1;
