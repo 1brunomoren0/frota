@@ -6,7 +6,177 @@
 <title>Frota — UniFECAF & Colégio SER</title>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
+/* ===================================
+   CHECKLIST DE VIAGEM
+=================================== */
+function initChecklist(){
+  const sel = document.getElementById('ck-vei-filter');
+  if(sel && sel.options.length <= 1){
+    veiculos.forEach(v=>{
+      const o = document.createElement('option');
+      o.value = v.id; o.textContent = v.nome + ' (' + v.placa + ')';
+      sel.appendChild(o);
+    });
+  }
+}
+
+function buscarReservaChecklist(){
+  const nome = (document.getElementById('ck-nome').value||'').trim().toLowerCase();
+  const vFilt = document.getElementById('ck-vei-filter').value;
+  const el = document.getElementById('ck-results');
+  if(nome.length < 2){ el.innerHTML='<div class="ck-empty"><i class="ti ti-steering-wheel"></i><p>Digite pelo menos 2 letras do seu nome</p></div>'; return; }
+  
+  let lista = reservas.filter(r => r.status === 'aprovado' && r.responsavel.toLowerCase().includes(nome));
+  if(vFilt) lista = lista.filter(r => r.veiculo_id == vFilt);
+  
+  if(!lista.length){
+    el.innerHTML='<div class="ck-empty"><i class="ti ti-search-off"></i><p>Nenhuma reserva aprovada encontrada para <strong>"'+nome+'"</strong></p></div>';
+    return;
+  }
+  
+  el.innerHTML = lista.map(r => {
+    const v = veiculos.find(x => x.id === r.veiculo_id);
+    const ck = r.checklist || {};
+    let statusCls, statusLbl, statusIco;
+    if(ck.retorno_hora){ statusCls='ck-conc'; statusLbl='✅ Concluída'; statusIco='ti-flag'; }
+    else if(ck.saida_hora){ statusCls='ck-viagem'; statusLbl='🚗 Em viagem'; statusIco='ti-car'; }
+    else { statusCls='ck-aguard'; statusLbl='⏳ Aguardando saída'; statusIco='ti-clock'; }
+    
+    let bodyHtml = '';
+    
+    // Show saida info if registered
+    if(ck.saida_hora){
+      bodyHtml += `<div class="ck-section-title"><i class="ti ti-logout"></i> Dados de saída</div>
+      <div class="ck-grid">
+        <div class="ck-field"><span class="ck-label">Data</span><span class="ck-value">${fmt(ck.saida_data)}</span></div>
+        <div class="ck-field"><span class="ck-label">Hora</span><span class="ck-value">${ck.saida_hora}</span></div>
+        <div class="ck-field"><span class="ck-label">Km saída</span><span class="ck-value">${(ck.saida_km||0).toLocaleString('pt-BR')} km</span></div>
+        <div class="ck-field"><span class="ck-label">Condições</span><span class="ck-value">${ck.saida_cond==='ok'?'✅ OK':'⚠️ Com avaria'}</span></div>
+        ${ck.saida_obs?`<div class="ck-field" style="grid-column:1/-1"><span class="ck-label">Obs.</span><span class="ck-value">${ck.saida_obs}</span></div>`:''}
+      </div>`;
+    }
+    
+    // Show retorno info if registered
+    if(ck.retorno_hora){
+      const kmRodado = ck.retorno_km && ck.saida_km ? ck.retorno_km - ck.saida_km : null;
+      bodyHtml += `<div class="ck-divider"></div>
+      <div class="ck-section-title"><i class="ti ti-login"></i> Dados de retorno</div>
+      <div class="ck-grid">
+        <div class="ck-field"><span class="ck-label">Data</span><span class="ck-value">${fmt(ck.retorno_data)}</span></div>
+        <div class="ck-field"><span class="ck-label">Hora</span><span class="ck-value">${ck.retorno_hora}</span></div>
+        <div class="ck-field"><span class="ck-label">Km retorno</span><span class="ck-value">${(ck.retorno_km||0).toLocaleString('pt-BR')} km</span></div>
+        <div class="ck-field"><span class="ck-label">Condições</span><span class="ck-value">${ck.retorno_cond==='ok'?'✅ OK':ck.retorno_cond==='avaria'?'⚠️ Avaria':'⛽ Abastecimento'}</span></div>
+        ${ck.retorno_obs?`<div class="ck-field" style="grid-column:1/-1"><span class="ck-label">Obs.</span><span class="ck-value">${ck.retorno_obs}</span></div>`:''}
+      </div>
+      ${kmRodado!==null?`<div style="margin-top:8px"><span style="font-size:12px;color:var(--gray-400)">Total percorrido:</span> <span class="ck-km-badge"><i class="ti ti-road"></i> ${kmRodado.toLocaleString('pt-BR')} km rodados</span></div>`:''}`;
+    }
+    
+    // Action buttons
+    let btns = '';
+    if(!ck.saida_hora){
+      btns = `<button class="ck-big-btn ck-saida-btn" onclick="abrirSaida(${r.id})"><i class="ti ti-logout"></i> Registrar Saída</button>`;
+    } else if(!ck.retorno_hora){
+      btns = `<button class="ck-big-btn ck-retorno-btn" onclick="abrirRetorno(${r.id})"><i class="ti ti-login"></i> Registrar Retorno</button>`;
+    } else {
+      btns = `<div style="text-align:center;padding:8px;font-size:13px;color:var(--green2);font-weight:600"><i class="ti ti-circle-check"></i> Viagem concluída!</div>`;
+    }
+    
+    return `<div class="ck-card">
+      <div class="ck-card-top">
+        <div class="ck-card-info">
+          <div class="ck-card-name"><i class="ti ti-car" style="color:var(--blue)"></i> ${v?.nome||'?'} <span style="font-family:monospace;font-size:11px;color:var(--gray-400)">${v?.placa||''}</span></div>
+          <div class="ck-card-sub">${fmt(r.data_saida)}${r.data_retorno!==r.data_saida?' → '+fmt(r.data_retorno):''} · ${r.destino}</div>
+        </div>
+        <span class="ck-status ${statusCls}">${statusLbl}</span>
+      </div>
+      ${bodyHtml||ck.saida_hora?`<div class="ck-body">${bodyHtml}<div class="ck-divider"></div><div class="ck-btn-row">${btns}</div></div>`:`<div class="ck-body"><div class="ck-btn-row">${btns}</div></div>`}
+    </div>`;
+  }).join('');
+}
+
+function abrirSaida(resId){
+  const r = reservas.find(x=>x.id===resId);
+  const v = veiculos.find(x=>x.id===r.veiculo_id);
+  document.getElementById('sd-res-id').value = resId;
+  document.getElementById('sd-vei').value = (v?.nome||'?') + ' — ' + (v?.placa||'');
+  document.getElementById('sd-resp').value = r.responsavel + ' · ' + r.departamento;
+  document.getElementById('sd-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('sd-hora').value = new Date().toTimeString().slice(0,5);
+  document.getElementById('sd-km').value = v?.km_atual || '';
+  document.getElementById('sd-cond').value = 'ok';
+  document.getElementById('sd-obs').value = '';
+  ov('ov-saida');
+}
+
+async function salvarSaida(){
+  const resId = parseInt(document.getElementById('sd-res-id').value);
+  const km = parseInt(document.getElementById('sd-km').value);
+  if(!km){ toast('Informe o Km de saída.','err'); return; }
+  const r = reservas.find(x=>x.id===resId);
+  const ck = r.checklist || {};
+  ck.saida_data = document.getElementById('sd-data').value;
+  ck.saida_hora = document.getElementById('sd-hora').value;
+  ck.saida_km   = km;
+  ck.saida_cond = document.getElementById('sd-cond').value;
+  ck.saida_obs  = document.getElementById('sd-obs').value.trim();
+  const {error} = await SB.from('reservas').update({checklist: ck}).eq('id', resId);
+  if(error){ toast('Erro ao salvar saída: '+(error.message||error.code),'err'); return; }
+  // Update km in vehicle
+  const v = veiculos.find(x=>x.id===r.veiculo_id);
+  if(v && km > (v.km_atual||0)) await SB.from('veiculos').update({km_atual: km}).eq('id', v.id);
+  cov('ov-saida');
+  await loadData();
+  renderAll();
+  buscarReservaChecklist();
+  toast('✓ Saída registrada com sucesso!','ok');
+}
+
+function abrirRetorno(resId){
+  const r = reservas.find(x=>x.id===resId);
+  const v = veiculos.find(x=>x.id===r.veiculo_id);
+  const ck = r.checklist || {};
+  document.getElementById('rt-res-id').value = resId;
+  document.getElementById('rt-km-saida').value = ck.saida_km || 0;
+  document.getElementById('rt-vei').value = (v?.nome||'?') + ' — ' + (v?.placa||'');
+  document.getElementById('rt-resp').value = r.responsavel + ' · ' + r.departamento;
+  document.getElementById('rt-saida-info').innerHTML = 
+    `<strong>Saída registrada:</strong> ${fmt(ck.saida_data)} às ${ck.saida_hora} · Km: ${(ck.saida_km||0).toLocaleString('pt-BR')}`;
+  document.getElementById('rt-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('rt-hora').value = new Date().toTimeString().slice(0,5);
+  document.getElementById('rt-km').value = '';
+  document.getElementById('rt-cond').value = 'ok';
+  document.getElementById('rt-obs').value = '';
+  ov('ov-retorno');
+}
+
+async function salvarRetorno(){
+  const resId = parseInt(document.getElementById('rt-res-id').value);
+  const kmSaida = parseInt(document.getElementById('rt-km-saida').value)||0;
+  const km = parseInt(document.getElementById('rt-km').value);
+  if(!km){ toast('Informe o Km de retorno.','err'); return; }
+  if(km < kmSaida){ if(!confirm('O Km de retorno é menor que o de saída. Confirmar mesmo assim?')) return; }
+  const r = reservas.find(x=>x.id===resId);
+  const ck = r.checklist || {};
+  ck.retorno_data = document.getElementById('rt-data').value;
+  ck.retorno_hora = document.getElementById('rt-hora').value;
+  ck.retorno_km   = km;
+  ck.retorno_cond = document.getElementById('rt-cond').value;
+  ck.retorno_obs  = document.getElementById('rt-obs').value.trim();
+  const kmRodado = km - kmSaida;
+  const {error} = await SB.from('reservas').update({checklist: ck, status:'concluido'}).eq('id', resId);
+  if(error){ toast('Erro ao salvar retorno: '+(error.message||error.code),'err'); return; }
+  // Update vehicle km
+  const v = veiculos.find(x=>x.id===r.veiculo_id);
+  if(v && km > (v.km_atual||0)) await SB.from('veiculos').update({km_atual: km}).eq('id', v.id);
+  cov('ov-retorno');
+  await loadData();
+  renderAll();
+  buscarReservaChecklist();
+  toast('✓ Retorno registrado! ' + kmRodado.toLocaleString('pt-BR') + ' km percorridos.','ok');
+}
+
+</script>
 <style>
 :root{
   --blue:#003E7E;--blue2:#002655;--blue3:#1565C0;--blue-l:#E3EDF8;--blue-xl:#F0F5FC;
@@ -298,6 +468,35 @@ tr:hover td{background:var(--gray-50)}
 .tb-logo-pill{display:flex;align-items:center;gap:10px;background:#fff;padding:5px 14px;border-radius:8px}
 .tb-logo-pill img{height:22px;object-fit:contain;filter:none!important}
 .tb-logo-inner-sep{width:1px;height:18px;background:var(--gray-200)}
+
+/* ===== CHECKLIST ===== */
+.ck-search{background:#fff;border-radius:var(--r18);border:1.5px solid var(--gray-200);padding:22px 24px;box-shadow:var(--sh1);margin-bottom:20px}
+.ck-search h3{font-family:var(--fh);font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.ck-results{display:flex;flex-direction:column;gap:12px}
+.ck-card{background:#fff;border-radius:var(--r14);border:1.5px solid var(--gray-200);overflow:hidden;box-shadow:var(--sh0);transition:var(--t)}
+.ck-card-top{padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ck-card-info{flex:1}
+.ck-card-name{font-family:var(--fh);font-weight:600;font-size:14px;color:var(--gray-900)}
+.ck-card-sub{font-size:12px;color:var(--gray-400);margin-top:2px}
+.ck-status{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;font-family:var(--fh)}
+.ck-aguard{background:#FEF3C7;color:#92400E}
+.ck-viagem{background:#DBEAFE;color:#1E40AF}
+.ck-conc{background:#D1FAE5;color:#065F46}
+.ck-body{border-top:1.5px solid var(--gray-100);padding:16px 18px;background:var(--gray-50)}
+.ck-section-title{font-family:var(--fh);font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.ck-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.ck-field{display:flex;flex-direction:column;gap:4px}
+.ck-label{font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px}
+.ck-value{font-size:13px;font-weight:500;color:var(--gray-900)}
+.ck-divider{height:1px;background:var(--gray-200);margin:14px 0}
+.ck-btn-row{display:flex;gap:8px;flex-wrap:wrap}
+.ck-big-btn{flex:1;min-width:140px;padding:12px 16px;border-radius:var(--r10);font-size:13px;font-weight:700;font-family:var(--fh);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:var(--t)}
+.ck-saida-btn{background:var(--blue);color:#fff}.ck-saida-btn:hover{background:var(--blue2)}
+.ck-retorno-btn{background:var(--green);color:#fff}.ck-retorno-btn:hover{background:var(--green2)}
+.ck-info-row{display:flex;align-items:center;gap:8px;background:var(--blue-xl);border-radius:var(--r10);padding:10px 14px;font-size:12px;color:var(--blue3);margin-bottom:12px}
+.ck-km-badge{font-family:monospace;font-size:13px;font-weight:700;background:var(--green-l);color:var(--green2);padding:3px 10px;border-radius:20px;display:inline-block}
+.ck-empty{text-align:center;padding:32px 16px;color:var(--gray-400)}
+.ck-empty .ti{font-size:32px;display:block;margin-bottom:8px;color:var(--gray-300)}
 </style>
 </head>
 <body>
@@ -414,6 +613,38 @@ tr:hover td{background:var(--gray-50)}
         <div class="cl-i"><div class="cl-d" style="background:#1E40AF"></div>Concluído</div>
       </div>
       <div class="cal-detail" id="cal-detail"></div>
+    </div>
+
+    
+    <!-- CHECKLIST DE VIAGEM (público) -->
+    <div class="form-card" id="checklist-section" style="margin-bottom:28px">
+      <div class="form-card-hdr" style="background:linear-gradient(120deg,#1B5E20,var(--green))">
+        <i class="ti ti-steering-wheel"></i>
+        <div>
+          <h2>Checklist de Viagem</h2>
+          <p>Registre a saída e o retorno do veículo — rápido e simples</p>
+        </div>
+      </div>
+      <div class="form-card-body">
+        <div class="ck-search">
+          <h3><i class="ti ti-search" style="color:var(--blue)"></i> Buscar sua reserva</h3>
+          <div class="g2" style="margin-bottom:10px">
+            <div class="fg">
+              <label class="flbl">Seu nome</label>
+              <input class="fi fi-plain" id="ck-nome" placeholder="Digite seu nome completo" oninput="buscarReservaChecklist()">
+            </div>
+            <div class="fg">
+              <label class="flbl">Veículo</label>
+              <select class="fi fi-plain" id="ck-vei-filter" onchange="buscarReservaChecklist()">
+                <option value="">Todos os veículos</option>
+              </select>
+            </div>
+          </div>
+          <div id="ck-results" class="ck-results">
+            <div class="ck-empty"><i class="ti ti-steering-wheel"></i><p>Digite seu nome para encontrar sua reserva</p></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ADMIN PANEL (oculto por padrão) -->
@@ -646,7 +877,7 @@ async function loadData(){
 }
 
 function renderAll(){
-  renderStats();renderVgrid();renderRvVeiculos();renderCal();
+  renderStats();renderVgrid();renderRvVeiculos();renderCal();initChecklist();
   if(adminLogado){renderAprov();renderTodasReservas();renderVeiculosAdm();renderRelFiltros();}
 }
 
@@ -1060,6 +1291,237 @@ async function salvarManut(){
 function expCSV(vid){const v=veiculos.find(x=>x.id==vid);const rows=reservas.filter(r=>r.veiculo_id==vid).map(r=>`${r.id},"${v?.nome}","${v?.placa}","${r.departamento}","${r.responsavel}","${r.contato||''}","${fmt(r.data_saida)}","${fmt(r.data_retorno)}","${r.destino}","${r.status}","${r.feedback||''}"`);dl(['ID,Veiculo,Placa,Departamento,Responsavel,Contato,Saida,Retorno,Destino,Status,Feedback',...rows].join('\n'),`relatorio_${v?.nome?.replace(/ /g,'_')}.csv`,'text/csv');}
 function expTXT(vid){const v=veiculos.find(x=>x.id==vid);let t=`RELATÓRIO — ${v?.nome} (${v?.placa})\n${'='.repeat(48)}\nKm: ${v?.km_atual?.toLocaleString('pt-BR')}\nÚltima troca óleo: ${fmt(v?.ultima_troca_oleo)}\nPróxima (km): ${v?.proxima_troca_oleo_km?.toLocaleString('pt-BR')||'—'}\n\nRESERVAS\n${'-'.repeat(30)}\n`;reservas.filter(r=>r.veiculo_id==vid).forEach(r=>{t+=`${fmt(r.data_saida)} → ${fmt(r.data_retorno)} | ${r.responsavel} (${r.departamento}) | ${r.destino} | ${r.status}\n`;});dl(t,`relatorio_${v?.nome?.replace(/ /g,'_')}.txt`,'text/plain');}
 function dl(c,n,t){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:t}));a.download=n;a.click();}
+
+/* ===================================
+   CHECKLIST DE VIAGEM
+=================================== */
+function initChecklist(){
+  const sel = document.getElementById('ck-vei-filter');
+  if(sel && sel.options.length <= 1){
+    veiculos.forEach(v=>{
+      const o = document.createElement('option');
+      o.value = v.id; o.textContent = v.nome + ' (' + v.placa + ')';
+      sel.appendChild(o);
+    });
+  }
+}
+
+function buscarReservaChecklist(){
+  const nome = (document.getElementById('ck-nome').value||'').trim().toLowerCase();
+  const vFilt = document.getElementById('ck-vei-filter').value;
+  const el = document.getElementById('ck-results');
+  if(nome.length < 2){ el.innerHTML='<div class="ck-empty"><i class="ti ti-steering-wheel"></i><p>Digite pelo menos 2 letras do seu nome</p></div>'; return; }
+  
+  let lista = reservas.filter(r => r.status === 'aprovado' && r.responsavel.toLowerCase().includes(nome));
+  if(vFilt) lista = lista.filter(r => r.veiculo_id == vFilt);
+  
+  if(!lista.length){
+    el.innerHTML='<div class="ck-empty"><i class="ti ti-search-off"></i><p>Nenhuma reserva aprovada encontrada para <strong>"'+nome+'"</strong></p></div>';
+    return;
+  }
+  
+  el.innerHTML = lista.map(r => {
+    const v = veiculos.find(x => x.id === r.veiculo_id);
+    const ck = r.checklist || {};
+    let statusCls, statusLbl, statusIco;
+    if(ck.retorno_hora){ statusCls='ck-conc'; statusLbl='✅ Concluída'; statusIco='ti-flag'; }
+    else if(ck.saida_hora){ statusCls='ck-viagem'; statusLbl='🚗 Em viagem'; statusIco='ti-car'; }
+    else { statusCls='ck-aguard'; statusLbl='⏳ Aguardando saída'; statusIco='ti-clock'; }
+    
+    let bodyHtml = '';
+    
+    // Show saida info if registered
+    if(ck.saida_hora){
+      bodyHtml += `<div class="ck-section-title"><i class="ti ti-logout"></i> Dados de saída</div>
+      <div class="ck-grid">
+        <div class="ck-field"><span class="ck-label">Data</span><span class="ck-value">${fmt(ck.saida_data)}</span></div>
+        <div class="ck-field"><span class="ck-label">Hora</span><span class="ck-value">${ck.saida_hora}</span></div>
+        <div class="ck-field"><span class="ck-label">Km saída</span><span class="ck-value">${(ck.saida_km||0).toLocaleString('pt-BR')} km</span></div>
+        <div class="ck-field"><span class="ck-label">Condições</span><span class="ck-value">${ck.saida_cond==='ok'?'✅ OK':'⚠️ Com avaria'}</span></div>
+        ${ck.saida_obs?`<div class="ck-field" style="grid-column:1/-1"><span class="ck-label">Obs.</span><span class="ck-value">${ck.saida_obs}</span></div>`:''}
+      </div>`;
+    }
+    
+    // Show retorno info if registered
+    if(ck.retorno_hora){
+      const kmRodado = ck.retorno_km && ck.saida_km ? ck.retorno_km - ck.saida_km : null;
+      bodyHtml += `<div class="ck-divider"></div>
+      <div class="ck-section-title"><i class="ti ti-login"></i> Dados de retorno</div>
+      <div class="ck-grid">
+        <div class="ck-field"><span class="ck-label">Data</span><span class="ck-value">${fmt(ck.retorno_data)}</span></div>
+        <div class="ck-field"><span class="ck-label">Hora</span><span class="ck-value">${ck.retorno_hora}</span></div>
+        <div class="ck-field"><span class="ck-label">Km retorno</span><span class="ck-value">${(ck.retorno_km||0).toLocaleString('pt-BR')} km</span></div>
+        <div class="ck-field"><span class="ck-label">Condições</span><span class="ck-value">${ck.retorno_cond==='ok'?'✅ OK':ck.retorno_cond==='avaria'?'⚠️ Avaria':'⛽ Abastecimento'}</span></div>
+        ${ck.retorno_obs?`<div class="ck-field" style="grid-column:1/-1"><span class="ck-label">Obs.</span><span class="ck-value">${ck.retorno_obs}</span></div>`:''}
+      </div>
+      ${kmRodado!==null?`<div style="margin-top:8px"><span style="font-size:12px;color:var(--gray-400)">Total percorrido:</span> <span class="ck-km-badge"><i class="ti ti-road"></i> ${kmRodado.toLocaleString('pt-BR')} km rodados</span></div>`:''}`;
+    }
+    
+    // Action buttons
+    let btns = '';
+    if(!ck.saida_hora){
+      btns = `<button class="ck-big-btn ck-saida-btn" onclick="abrirSaida(${r.id})"><i class="ti ti-logout"></i> Registrar Saída</button>`;
+    } else if(!ck.retorno_hora){
+      btns = `<button class="ck-big-btn ck-retorno-btn" onclick="abrirRetorno(${r.id})"><i class="ti ti-login"></i> Registrar Retorno</button>`;
+    } else {
+      btns = `<div style="text-align:center;padding:8px;font-size:13px;color:var(--green2);font-weight:600"><i class="ti ti-circle-check"></i> Viagem concluída!</div>`;
+    }
+    
+    return `<div class="ck-card">
+      <div class="ck-card-top">
+        <div class="ck-card-info">
+          <div class="ck-card-name"><i class="ti ti-car" style="color:var(--blue)"></i> ${v?.nome||'?'} <span style="font-family:monospace;font-size:11px;color:var(--gray-400)">${v?.placa||''}</span></div>
+          <div class="ck-card-sub">${fmt(r.data_saida)}${r.data_retorno!==r.data_saida?' → '+fmt(r.data_retorno):''} · ${r.destino}</div>
+        </div>
+        <span class="ck-status ${statusCls}">${statusLbl}</span>
+      </div>
+      ${bodyHtml||ck.saida_hora?`<div class="ck-body">${bodyHtml}<div class="ck-divider"></div><div class="ck-btn-row">${btns}</div></div>`:`<div class="ck-body"><div class="ck-btn-row">${btns}</div></div>`}
+    </div>`;
+  }).join('');
+}
+
+function abrirSaida(resId){
+  const r = reservas.find(x=>x.id===resId);
+  const v = veiculos.find(x=>x.id===r.veiculo_id);
+  document.getElementById('sd-res-id').value = resId;
+  document.getElementById('sd-vei').value = (v?.nome||'?') + ' — ' + (v?.placa||'');
+  document.getElementById('sd-resp').value = r.responsavel + ' · ' + r.departamento;
+  document.getElementById('sd-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('sd-hora').value = new Date().toTimeString().slice(0,5);
+  document.getElementById('sd-km').value = v?.km_atual || '';
+  document.getElementById('sd-cond').value = 'ok';
+  document.getElementById('sd-obs').value = '';
+  ov('ov-saida');
+}
+
+async function salvarSaida(){
+  const resId = parseInt(document.getElementById('sd-res-id').value);
+  const km = parseInt(document.getElementById('sd-km').value);
+  if(!km){ toast('Informe o Km de saída.','err'); return; }
+  const r = reservas.find(x=>x.id===resId);
+  const ck = r.checklist || {};
+  ck.saida_data = document.getElementById('sd-data').value;
+  ck.saida_hora = document.getElementById('sd-hora').value;
+  ck.saida_km   = km;
+  ck.saida_cond = document.getElementById('sd-cond').value;
+  ck.saida_obs  = document.getElementById('sd-obs').value.trim();
+  const {error} = await SB.from('reservas').update({checklist: ck}).eq('id', resId);
+  if(error){ toast('Erro ao salvar saída: '+(error.message||error.code),'err'); return; }
+  // Update km in vehicle
+  const v = veiculos.find(x=>x.id===r.veiculo_id);
+  if(v && km > (v.km_atual||0)) await SB.from('veiculos').update({km_atual: km}).eq('id', v.id);
+  cov('ov-saida');
+  await loadData();
+  renderAll();
+  buscarReservaChecklist();
+  toast('✓ Saída registrada com sucesso!','ok');
+}
+
+function abrirRetorno(resId){
+  const r = reservas.find(x=>x.id===resId);
+  const v = veiculos.find(x=>x.id===r.veiculo_id);
+  const ck = r.checklist || {};
+  document.getElementById('rt-res-id').value = resId;
+  document.getElementById('rt-km-saida').value = ck.saida_km || 0;
+  document.getElementById('rt-vei').value = (v?.nome||'?') + ' — ' + (v?.placa||'');
+  document.getElementById('rt-resp').value = r.responsavel + ' · ' + r.departamento;
+  document.getElementById('rt-saida-info').innerHTML = 
+    `<strong>Saída registrada:</strong> ${fmt(ck.saida_data)} às ${ck.saida_hora} · Km: ${(ck.saida_km||0).toLocaleString('pt-BR')}`;
+  document.getElementById('rt-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('rt-hora').value = new Date().toTimeString().slice(0,5);
+  document.getElementById('rt-km').value = '';
+  document.getElementById('rt-cond').value = 'ok';
+  document.getElementById('rt-obs').value = '';
+  ov('ov-retorno');
+}
+
+async function salvarRetorno(){
+  const resId = parseInt(document.getElementById('rt-res-id').value);
+  const kmSaida = parseInt(document.getElementById('rt-km-saida').value)||0;
+  const km = parseInt(document.getElementById('rt-km').value);
+  if(!km){ toast('Informe o Km de retorno.','err'); return; }
+  if(km < kmSaida){ if(!confirm('O Km de retorno é menor que o de saída. Confirmar mesmo assim?')) return; }
+  const r = reservas.find(x=>x.id===resId);
+  const ck = r.checklist || {};
+  ck.retorno_data = document.getElementById('rt-data').value;
+  ck.retorno_hora = document.getElementById('rt-hora').value;
+  ck.retorno_km   = km;
+  ck.retorno_cond = document.getElementById('rt-cond').value;
+  ck.retorno_obs  = document.getElementById('rt-obs').value.trim();
+  const kmRodado = km - kmSaida;
+  const {error} = await SB.from('reservas').update({checklist: ck, status:'concluido'}).eq('id', resId);
+  if(error){ toast('Erro ao salvar retorno: '+(error.message||error.code),'err'); return; }
+  // Update vehicle km
+  const v = veiculos.find(x=>x.id===r.veiculo_id);
+  if(v && km > (v.km_atual||0)) await SB.from('veiculos').update({km_atual: km}).eq('id', v.id);
+  cov('ov-retorno');
+  await loadData();
+  renderAll();
+  buscarReservaChecklist();
+  toast('✓ Retorno registrado! ' + kmRodado.toLocaleString('pt-BR') + ' km percorridos.','ok');
+}
+
 </script>
+
+<!-- MODAL SAÍDA -->
+<div class="ov" id="ov-saida">
+  <div class="modal">
+    <div class="mhdr" style="background:var(--blue)"><h3><i class="ti ti-car-suv"></i> Registrar Saída</h3><button class="xbtn" onclick="cov('ov-saida')"><i class="ti ti-x"></i></button></div>
+    <div class="mbody">
+      <div class="ck-info-row"><i class="ti ti-info-circle"></i> Preencha antes de sair com o veículo</div>
+      <div class="fg"><label class="flbl">Veículo</label><input class="fi fi-plain" id="sd-vei" readonly></div>
+      <div class="fg"><label class="flbl">Responsável</label><input class="fi fi-plain" id="sd-resp" readonly></div>
+      <div class="g2">
+        <div class="fg"><label class="flbl">Data de saída</label><input type="date" class="fi fi-plain" id="sd-data"></div>
+        <div class="fg"><label class="flbl">Hora de saída</label><input type="time" class="fi fi-plain" id="sd-hora"></div>
+      </div>
+      <div class="fg"><label class="flbl">Km na saída</label><input type="number" class="fi fi-plain" id="sd-km" placeholder="Ex: 45230"></div>
+      <div class="fg"><label class="flbl">Condições do veículo na saída</label>
+        <select class="fi fi-plain" id="sd-cond">
+          <option value="ok">✅ Boas condições</option>
+          <option value="avaria">⚠️ Possui avaria (descreva abaixo)</option>
+        </select>
+      </div>
+      <div class="fg"><label class="flbl">Observações de saída</label><textarea class="fi fi-plain" id="sd-obs" rows="2" style="resize:vertical" placeholder="Avarias, nível de combustível, etc..."></textarea></div>
+      <input type="hidden" id="sd-res-id">
+    </div>
+    <div class="mftr">
+      <button class="btn btn-ghost" onclick="cov('ov-saida')">Cancelar</button>
+      <button class="btn btn-p" onclick="salvarSaida()"><i class="ti ti-check"></i> Confirmar saída</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL RETORNO -->
+<div class="ov" id="ov-retorno">
+  <div class="modal">
+    <div class="mhdr" style="background:var(--green2)"><h3><i class="ti ti-home-check"></i> Registrar Retorno</h3><button class="xbtn" onclick="cov('ov-retorno')"><i class="ti ti-x"></i></button></div>
+    <div class="mbody">
+      <div class="ck-info-row" style="background:var(--green-l);color:var(--green2)"><i class="ti ti-info-circle"></i> Preencha ao devolver o veículo</div>
+      <div class="fg"><label class="flbl">Veículo</label><input class="fi fi-plain" id="rt-vei" readonly></div>
+      <div class="fg"><label class="flbl">Responsável</label><input class="fi fi-plain" id="rt-resp" readonly></div>
+      <div id="rt-saida-info" style="background:var(--gray-50);border-radius:var(--r10);padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--gray-500)"></div>
+      <div class="g2">
+        <div class="fg"><label class="flbl">Data de retorno</label><input type="date" class="fi fi-plain" id="rt-data"></div>
+        <div class="fg"><label class="flbl">Hora de retorno</label><input type="time" class="fi fi-plain" id="rt-hora"></div>
+      </div>
+      <div class="fg"><label class="flbl">Km no retorno</label><input type="number" class="fi fi-plain" id="rt-km" placeholder="Ex: 45630"></div>
+      <div class="fg"><label class="flbl">Condições do veículo no retorno</label>
+        <select class="fi fi-plain" id="rt-cond">
+          <option value="ok">✅ Devolvido em boas condições</option>
+          <option value="avaria">⚠️ Avaria durante a viagem</option>
+          <option value="abastecimento">⛽ Necessita abastecimento</option>
+        </select>
+      </div>
+      <div class="fg"><label class="flbl">Observações de retorno</label><textarea class="fi fi-plain" id="rt-obs" rows="2" style="resize:vertical" placeholder="Ocorrências durante a viagem, avarias, etc..."></textarea></div>
+      <input type="hidden" id="rt-res-id">
+      <input type="hidden" id="rt-km-saida">
+    </div>
+    <div class="mftr">
+      <button class="btn btn-ghost" onclick="cov('ov-retorno')">Cancelar</button>
+      <button class="btn btn-g" onclick="salvarRetorno()"><i class="ti ti-check"></i> Confirmar retorno</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
